@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Crime Dashboard</title>
+
+    <!-- Leaflet map library styles -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+
+    <!-- Vue 3 (the JavaScript framework we're using) -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+
+    <!-- Leaflet map library code -->
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            color: #eee;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* The #app div is where Vue lives — it controls everything inside it */
+        #app {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            padding: 12px 20px;
+            background: #16213e;
+            border-bottom: 2px solid #0f3460;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .header h1 {
+            font-size: 1.3rem;
+            color: #e94560;
+        }
+
+        .header .stats {
+            font-size: 0.85rem;
+            color: #aaa;
+        }
+
+        .status-badge {
+            margin-left: auto;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: bold;
+        }
+
+        .status-badge.loading {
+            background: #f39c12;
+            color: #000;
+        }
+
+        .status-badge.ready {
+            background: #27ae60;
+            color: #fff;
+        }
+
+        /* The map fills the remaining vertical space */
+        #map {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+
+    <!--
+        #app is the "root" of our Vue application.
+        Vue will take control of everything inside this div.
+        The {{ }} syntax is Vue's way of displaying JavaScript variables in HTML.
+    -->
+    <div id="app">
+
+        <div class="header">
+            <h1>{{ title }}</h1>
+
+            <!-- v-if and v-else are Vue "directives" — they show/hide elements based on a condition -->
+            <span v-if="isLoading" class="status-badge loading">Loading map data...</span>
+            <span v-else class="status-badge ready">{{ lsoaCount.toLocaleString() }} LSOAs loaded</span>
+
+            <div class="stats">
+                <!-- v-if hides this whole div until an LSOA is selected -->
+                <div v-if="selectedLSOA">
+                    Selected: <strong>{{ selectedLSOA.name }}</strong>
+                    ({{ selectedLSOA.code }})
+                </div>
+                <div v-else>
+                    Click an area to see details
+                </div>
+            </div>
+        </div>
+
+        <!-- Leaflet will attach the interactive map to this div -->
+        <div id="map"></div>
+
+    </div>
+
+    <script>
+        /*
+         * Vue 3 uses the "Composition API" — we import specific functions from Vue.
+         *
+         * createApp  — creates a new Vue application
+         * ref        — creates a "reactive" variable (Vue watches it and updates the UI automatically)
+         * onMounted  — runs code AFTER Vue has rendered the HTML to the page
+         */
+        const { createApp, ref, onMounted } = Vue;
+
+        /*
+         * createApp() takes an object that describes your app.
+         * The setup() function is where all your app's logic lives.
+         */
+        createApp({
+            setup() {
+
+                /*
+                 * ref() creates a reactive variable.
+                 * When you change .value, Vue automatically re-renders the HTML.
+                 *
+                 * Think of it like: normal variable = a box
+                 *                   ref()          = a magic box Vue is watching
+                 */
+                const title = ref('Crime Dashboard');
+                const isLoading = ref(true);
+                const lsoaCount = ref(0);
+                const selectedLSOA = ref(null);  // null means nothing is selected yet
+
+                /*
+                 * These hold references to Leaflet objects.
+                 * We do NOT use ref() here because Leaflet objects are complex
+                 * and don't need to trigger UI re-renders when they change.
+                 */
+                let map = null;
+                let geojsonLayer = null;
+
+                /*
+                 * onMounted runs once, right after Vue has drawn the HTML onto the page.
+                 * This is the right place to initialize the Leaflet map, because the
+                 * <div id="map"> element must exist in the DOM before Leaflet can use it.
+                 */
+                onMounted(() => {
+
+                    // --- 1. Create the Leaflet map ---
+                    map = L.map('map').setView([52.67, -1.98], 6.5);
+
+                    // Add the background tile layer (OpenStreetMap street tiles)
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        attribution: '© OpenStreetMap contributors',
+                        opacity: 0.5
+                    }).addTo(map);
+
+                    // --- 2. Fetch the GeoJSON data from the backend ---
+                    fetch('/data/lsoa_areas.geojson')
+                        .then(response => response.json())
+                        .then(data => {
+
+                            // Update our reactive variable — Vue will update the header automatically
+                            lsoaCount.value = data.features.length;
+
+                            // --- 3. Draw the LSOA boundaries on the map ---
+                            geojsonLayer = L.geoJson(data, {
+
+                                // style() returns CSS-like properties for each polygon
+                                style: {
+                                    color: '#60a5fa',
+                                    weight: 0.5,
+                                    fillColor: '#1d4ed8',
+                                    fillOpacity: 0.2
+                                },
+
+                                // onEachFeature runs once for every LSOA region
+                                onEachFeature(feature, layer) {
+                                    const props = feature.properties;
+
+                                    layer.on({
+                                        mouseover(e) {
+                                            e.target.setStyle({
+                                                weight: 2,
+                                                fillOpacity: 0.5,
+                                                fillColor: '#3b82f6'
+                                            });
+                                        },
+                                        mouseout(e) {
+                                            geojsonLayer.resetStyle(e.target);
+                                        },
+                                        click() {
+                                            /*
+                                             * When a region is clicked, update the reactive variable.
+                                             * Vue sees the change and immediately updates the header.
+                                             * No manual DOM manipulation needed!
+                                             */
+                                            selectedLSOA.value = {
+                                                code: props.LSOA21CD,
+                                                name: props.LSOA21NM
+                                            };
+                                        }
+                                    });
+
+                                    layer.bindPopup(`
+                                        <b>LSOA Code:</b> ${props.LSOA21CD}<br>
+                                        <b>LSOA Name:</b> ${props.LSOA21NM}
+                                    `);
+                                }
+
+                            }).addTo(map);
+
+                            // Loading is done — update the reactive variable
+                            isLoading.value = false;
+                        });
+                });
+
+                /*
+                 * IMPORTANT: Everything you use in the HTML template ({{ title }}, v-if="isLoading", etc.)
+                 * must be returned here from setup(). This is how Vue connects the JavaScript to the HTML.
+                 */
+                return {
+                    title,
+                    isLoading,
+                    lsoaCount,
+                    selectedLSOA
+                };
+            }
+
+        }).mount('#app');
+        /*
+         * .mount('#app') tells Vue: "Take control of the div with id="app"".
+         * This is the final step that activates the whole Vue application.
+         */
+    </script>
+
+</body>
+</html>
