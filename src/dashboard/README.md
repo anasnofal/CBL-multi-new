@@ -17,7 +17,9 @@ savings, and explanation data; a **Vue + Vite** frontend renders the map and cha
 
 1. Copy `.env.example` to `.env` and point the paths at your data files
    (`DATA_DIR`, `LSOA_DATA_DIR`, `GEOJSON_PATH`, etc.).
-2. Install frontend deps once:
+
+   you can find the data at Kaagle  https://www.kaggle.com/datasets/anasnofal/uk-police-crime-dataset-mar-2023-feb-2025
+3. Install frontend deps once:
 
    ```bash
    cd frontend && npm install
